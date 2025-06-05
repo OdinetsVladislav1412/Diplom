@@ -47,11 +47,9 @@ def non_dominated_sorting(points, values_f1, values_f2):
 
     return pareto_fronts[:-1]
 
-# Улучшенная функция расчета коэффициента толпы
 def crowding_distance(values_f1, values_f2, front_indices):
     distances = np.zeros(len(front_indices))
     
-    # Нормализация значений
     f1 = values_f1[front_indices]
     f2 = values_f2[front_indices]
     f1_min, f1_max = np.min(f1), np.max(f1)
@@ -59,7 +57,6 @@ def crowding_distance(values_f1, values_f2, front_indices):
     f1 = (f1 - f1_min) / (f1_max - f1_min) if f1_max > f1_min else f1
     f2 = (f2 - f2_min) / (f2_max - f2_min) if f2_max > f2_min else f2
 
-    # Сортировка и расчет расстояний
     sorted_f1 = np.argsort(f1)
     sorted_f2 = np.argsort(f2)
     
@@ -125,10 +122,8 @@ def prov_sigma(p):
 population_size = 1000
 generations = 100
 
-# Bounds: i, j, k, l
 bounds = np.array([[10, 80], [10, 50], [1, 5], [1, 5]])
 
-# Initialize population
 population = np.random.uniform(bounds[:, 0], bounds[:, 1], size=(population_size * 10, 4))
 population = population[np.array([prov_sigma(p) for p in population])]  # Учитываем прочностное ограничение
 population = population[:population_size]  # Ограничиваем размер популяции
@@ -139,10 +134,8 @@ for gen in range(generations):
     values_f1 = f1(population)
     values_f2 = f2(population)
 
-    # Non-dominated sorting
     pareto_fronts = non_dominated_sorting(population, values_f1, values_f2)
 
-    # Calculate crowding distance and select next generation
     next_population = []
     for front in pareto_fronts:
         if len(next_population) + len(front) <= population_size:
@@ -157,30 +150,23 @@ for gen in range(generations):
     next_population = np.array(next_population)
     population = population[next_population]
 
-    # Generate offspring
     offspring = create_offspring(population, bounds)
     offspring = np.array([child for child in offspring if prov_sigma(child)])  # Фильтруем потомков по прочности
 
-    # Combine and evaluate new population
     population = np.vstack([population, offspring])
 
-# Финальная сортировка и выбор точек
 values_f1 = f1(population)
 values_f2 = f2(population)
 
-# Non-dominated sorting for final population
 pareto_fronts = non_dominated_sorting(population, values_f1, values_f2)
 
-# Select only the first Pareto front
 first_pareto_front = np.array(pareto_fronts[0])
 population = population[first_pareto_front]
 values_f1 = values_f1[first_pareto_front]
 values_f2 = values_f2[first_pareto_front]
 
-# Calculate crowding distance for the first Pareto front
 distances = crowding_distance(values_f1, values_f2, np.arange(len(first_pareto_front)))
 
-# Limit the number of points for uniform distribution
 num_points_to_keep = population_size  # Количество точек для отображения
 if len(first_pareto_front) > num_points_to_keep:
     selected_indices = np.argsort(-distances)[:num_points_to_keep]  # Выбираем точки с максимальным расстоянием
@@ -188,7 +174,7 @@ if len(first_pareto_front) > num_points_to_keep:
     values_f1 = values_f1[selected_indices]
     values_f2 = values_f2[selected_indices]
 
-# Plot results
+# Визуализация
 plt.scatter(values_f1, values_f2, c='red', label='Фронт Парето')
 plt.xlabel('f1')
 plt.ylabel('f2')
