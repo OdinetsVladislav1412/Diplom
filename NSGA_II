@@ -1,0 +1,198 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Целевые функции
+def f1(points):
+    return 2 * points[:, 1] * points[:, 3] + points[:, 2] * (points[:, 0] - 2 * points[:, 3])
+
+def f2(points):
+    P = 600
+    L = 200
+    E = 2 * 10**4
+    I = (
+        points[:, 2] * (points[:, 0] - 2 * points[:, 3])**3 +
+        2 * points[:, 1] * points[:, 3] * (4 * points[:, 3]**2 + 3 * points[:, 0] * (points[:, 0] - 2 * points[:, 3]))
+    ) / 12
+    return (P * L**3) / (48 * E * I)
+
+# Недоминирующая сортировка
+def non_dominated_sorting(points, values_f1, values_f2):
+    population_size = len(points)
+    domination_counts = np.zeros(population_size, dtype=int)
+    dominated_sets = [[] for _ in range(population_size)]
+    pareto_fronts = [[]]
+
+    for i in range(population_size):
+        for j in range(population_size):
+            if i != j:
+                if (values_f1[i] <= values_f1[j] and values_f2[i] <= values_f2[j]) and \
+                   (values_f1[i] < values_f1[j] or values_f2[i] < values_f2[j]):
+                    dominated_sets[i].append(j)
+                elif (values_f1[j] <= values_f1[i] and values_f2[j] <= values_f2[i]) and \
+                     (values_f1[j] < values_f1[i] or values_f2[j] < values_f2[i]):
+                    domination_counts[i] += 1
+        if domination_counts[i] == 0:
+            pareto_fronts[0].append(i)
+
+    current_front = 0
+    while len(pareto_fronts[current_front]) > 0:
+        next_front = []
+        for i in pareto_fronts[current_front]:
+            for j in dominated_sets[i]:
+                domination_counts[j] -= 1
+                if domination_counts[j] == 0:
+                    next_front.append(j)
+        pareto_fronts.append(next_front)
+        current_front += 1
+
+    return pareto_fronts[:-1]
+
+# Улучшенная функция расчета коэффициента толпы
+def crowding_distance(values_f1, values_f2, front_indices):
+    distances = np.zeros(len(front_indices))
+    
+    # Нормализация значений
+    f1 = values_f1[front_indices]
+    f2 = values_f2[front_indices]
+    f1_min, f1_max = np.min(f1), np.max(f1)
+    f2_min, f2_max = np.min(f2), np.max(f2)
+    f1 = (f1 - f1_min) / (f1_max - f1_min) if f1_max > f1_min else f1
+    f2 = (f2 - f2_min) / (f2_max - f2_min) if f2_max > f2_min else f2
+
+    # Сортировка и расчет расстояний
+    sorted_f1 = np.argsort(f1)
+    sorted_f2 = np.argsort(f2)
+    
+    distances[sorted_f1[0]] = distances[sorted_f1[-1]] = float('inf')
+    distances[sorted_f2[0]] = distances[sorted_f2[-1]] = float('inf')
+
+    for i in range(1, len(front_indices) - 1):
+        distances[sorted_f1[i]] += (f1[sorted_f1[i + 1]] - f1[sorted_f1[i - 1]]) if f1_max > f1_min else 0
+        distances[sorted_f2[i]] += (f2[sorted_f2[i + 1]] - f2[sorted_f2[i - 1]]) if f2_max > f2_min else 0
+
+    return distances
+
+# SBX-кроссовер
+def sbx_crossover(p1, p2, bounds, eta=20):
+    rand = np.random.rand(len(p1))
+    beta = np.where(rand <= 0.5, (2 * rand) ** (1 / (eta + 1)), (1 / (2 * (1 - rand))) ** (1 / (eta + 1)))
+    child1 = 0.5 * ((1 + beta) * p1 + (1 - beta) * p2)
+    child2 = 0.5 * ((1 - beta) * p1 + (1 + beta) * p2)
+    return np.clip(child1, bounds[:, 0], bounds[:, 1]), np.clip(child2, bounds[:, 0], bounds[:, 1])
+
+# Полиномиальная мутация
+def polynomial_mutation(child, bounds, mutation_rate=0.1, eta=100):
+    if np.random.rand() < mutation_rate:
+        # Генерация случайного вектора мутаций
+        mutation = np.random.uniform(-1, 1, size=child.shape)
+        # Обеспечение корректного диапазона значений для child
+        normalized_child = (child - bounds[:, 0]) / (bounds[:, 1] - bounds[:, 0])
+        normalized_child = np.clip(normalized_child, 0, 1)  # Убедимся, что в диапазоне [0, 1]
+        
+        # Рассчитываем delta с проверкой на корректность
+        delta = np.where(
+            mutation > 0, 
+            (1 - normalized_child) ** (1 / (eta + 1)), 
+            normalized_child ** (1 / (eta + 1))
+        )
+        # Применяем мутацию и возвращаем значения в оригинальный диапазон
+        child = normalized_child + mutation * delta
+        child = bounds[:, 0] + child * (bounds[:, 1] - bounds[:, 0])  # Денормализация
+
+    return np.clip(child, bounds[:, 0], bounds[:, 1])  # Убедимся, что в пределах границ
+
+
+# Генерация потомков
+def create_offspring(population, bounds, mutation_rate=0.1):
+    offspring = []
+    for _ in range(len(population) // 2):
+        p1, p2 = population[np.random.choice(len(population), size=2, replace=False)]
+        child1, child2 = sbx_crossover(p1, p2, bounds)
+        child1 = polynomial_mutation(child1, bounds, mutation_rate)
+        child2 = polynomial_mutation(child2, bounds, mutation_rate)
+        offspring.append(child1)
+        offspring.append(child2)
+    return np.array(offspring)
+
+# Функция проверки прочности
+def prov_sigma(p):
+    Mz = 25000
+    sigma = 16
+    Wz = ((p[0] - 2 * p[3]) * p[2]**3 + 2 * p[3] * p[1]**3) / (6 * p[1])
+    return Mz / Wz <= sigma
+
+# MAIN
+population_size = 1000
+generations = 100
+
+# Bounds: i, j, k, l
+bounds = np.array([[10, 80], [10, 50], [1, 5], [1, 5]])
+
+# Initialize population
+population = np.random.uniform(bounds[:, 0], bounds[:, 1], size=(population_size * 10, 4))
+population = population[np.array([prov_sigma(p) for p in population])]  # Учитываем прочностное ограничение
+population = population[:population_size]  # Ограничиваем размер популяции
+
+for gen in range(generations):
+    print(f'Generation: {gen + 1}/{generations}')
+    # Evaluate functions
+    values_f1 = f1(population)
+    values_f2 = f2(population)
+
+    # Non-dominated sorting
+    pareto_fronts = non_dominated_sorting(population, values_f1, values_f2)
+
+    # Calculate crowding distance and select next generation
+    next_population = []
+    for front in pareto_fronts:
+        if len(next_population) + len(front) <= population_size:
+            next_population.extend(front)
+        else:
+            distances = crowding_distance(values_f1, values_f2, front)
+            sorted_indices = np.argsort(-distances)
+            front_array = np.array(front)  
+            next_population.extend(front_array[sorted_indices[:population_size - len(next_population)]])
+            break
+
+    next_population = np.array(next_population)
+    population = population[next_population]
+
+    # Generate offspring
+    offspring = create_offspring(population, bounds)
+    offspring = np.array([child for child in offspring if prov_sigma(child)])  # Фильтруем потомков по прочности
+
+    # Combine and evaluate new population
+    population = np.vstack([population, offspring])
+
+# Финальная сортировка и выбор точек
+values_f1 = f1(population)
+values_f2 = f2(population)
+
+# Non-dominated sorting for final population
+pareto_fronts = non_dominated_sorting(population, values_f1, values_f2)
+
+# Select only the first Pareto front
+first_pareto_front = np.array(pareto_fronts[0])
+population = population[first_pareto_front]
+values_f1 = values_f1[first_pareto_front]
+values_f2 = values_f2[first_pareto_front]
+
+# Calculate crowding distance for the first Pareto front
+distances = crowding_distance(values_f1, values_f2, np.arange(len(first_pareto_front)))
+
+# Limit the number of points for uniform distribution
+num_points_to_keep = population_size  # Количество точек для отображения
+if len(first_pareto_front) > num_points_to_keep:
+    selected_indices = np.argsort(-distances)[:num_points_to_keep]  # Выбираем точки с максимальным расстоянием
+    population = population[selected_indices]
+    values_f1 = values_f1[selected_indices]
+    values_f2 = values_f2[selected_indices]
+
+# Plot results
+plt.scatter(values_f1, values_f2, c='red', label='Фронт Парето')
+plt.xlabel('f1')
+plt.ylabel('f2')
+plt.title('NSGA-II')
+plt.legend()
+plt.grid(True)
+plt.show()
