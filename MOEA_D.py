@@ -1,9 +1,8 @@
-﻿
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.distance import cdist
 
-# Целевые функции для работы с отдельной особью
+# Целевые функции
 def f1(point):
     return 2 * point[1] * point[3] + point[2] * (point[0] - 2 * point[3])
 
@@ -29,7 +28,6 @@ def sbx_crossover(p1, p2, bounds, eta=20):
     beta = np.where(rand <= 0.5, (2 * rand)**(1/(eta + 1)), (1/(2*(1 - rand)))**(1/(eta + 1)))
     child1 = 0.5*((1 + beta)*p1 + (1 - beta)*p2)
     child2 = 0.5*((1 - beta)*p1 + (1 + beta)*p2)
-    # Исправленное ограничение границ
     return (
         np.clip(child1, [b[0] for b in bounds], [b[1] for b in bounds]),
         np.clip(child2, [b[0] for b in bounds], [b[1] for b in bounds])
